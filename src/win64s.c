@@ -126,7 +126,7 @@ void fatal_windows_error(const char* file, int line, const char* function,
     fprintf(stderr, "%s failed %s %s", call, error_to_string(error), extra);
     traceline(file, line, function, "%s failed %s %s", call, error_to_string(error), extra);
     breakpoint();
-    exit(1);
+    ExitProcess(1);
 }
 
 const char* error_to_string(uint32_t e) {
@@ -147,12 +147,26 @@ const char* error_to_string(uint32_t e) {
 
 const char* last_error() { return error_to_string(GetLastError()); }
 
-static void handle_close(handle_t handle) {
+static void handles_close(handle_t handle) {
     fatal_if_false(CloseHandle(handle));
 }
 
+static handle_t handles_dup(handle_t s, handle_t process_from, handle_t process_to) {
+    handle_t d = null;
+    fatal_if_false(DuplicateHandle(process_from, s, process_to, &d, 0, false, DUPLICATE_SAME_ACCESS),
+        "s=%p process_from=%p process_to=%p", s, process_from, process_to);
+    return d;
+}
+
+static bool handles_is_valid(handle_t h) {
+    uint32_t flags = 0;
+    return GetHandleInformation(h, &flags);
+}
+
 handles_if handles = {
-    handle_close
+    handles_is_valid,
+    handles_dup,
+    handles_close
 };
 
 static handle_t events_create() {
@@ -179,7 +193,7 @@ static int events_wait_or_timeout(handle_t e, uint32_t ms) {
     return r == WAIT_OBJECT_0 ? 0 : -1; // all WAIT_ABANDONED as -1  
 }
 
-static void events_wait(handle_t e) { events_wait_or_timeout(e, INFINITE); }
+static void events_wait(handle_t e) { events_wait_or_timeout(e, forever); }
 
 static int events_wait_any_or_timeout(int n, handle_t events[], uint32_t ms) {
     uint32_t r = 0;
@@ -189,7 +203,7 @@ static int events_wait_any_or_timeout(int n, handle_t events[], uint32_t ms) {
 }
 
 static int events_wait_any(int n, handle_t e[]) { 
-    return events_wait_any_or_timeout(n, e, INFINITE);
+    return events_wait_any_or_timeout(n, e, forever);
 }
 
 events_if events = {
@@ -201,7 +215,7 @@ events_if events = {
     events_wait_or_timeout,
     events_wait_any,
     events_wait_any_or_timeout,
-    handle_close
+    handles_close
 };
 
 static void threads_create_with_event(thread_t* thread, uint32_t (WINAPI *proc)(void* thread), void* that, handle_t e) {
@@ -223,7 +237,7 @@ static void threads_create(thread_t* thread, uint32_t (WINAPI *proc)(void* threa
 static void threads_join(thread_t* thread) {
     fatal_if_false(SetEvent(thread->events[0]));
     int r = 0;
-    fatal_if_false((r = WaitForSingleObject(thread->thread, INFINITE)) == WAIT_OBJECT_0);
+    fatal_if_false((r = WaitForSingleObject(thread->thread, forever)) == WAIT_OBJECT_0);
     events.dispose(thread->events[0]);
     events.dispose(thread->events[1]);
     handles.close(thread->thread);

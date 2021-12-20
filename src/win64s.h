@@ -37,6 +37,8 @@ typedef HANDLE handle_t;
 
 #define countof(a) (sizeof(a) / sizeof((a)[0]))
 
+#define forever INFINITE
+
 const char* error_to_string(uint32_t e);
 
 const char* last_error();
@@ -106,7 +108,7 @@ typedef struct thread_s {
     thread_t* self = (thread_t*)p;   \
     void* that = self->that;         \
 
-#define thread_wait(_timeout_ms_)                                                           \
+#define thread_wait_or_break(_timeout_ms_)                                                  \
         uint32_t _r_##__LINE__ = events.wait_any_or_timeout(2, self->events, _timeout_ms_); \
         if (_r_##__LINE__ == 0) { break; }                                                  \
 
@@ -119,7 +121,7 @@ static uint32_t WINAPI proc(void* _thread_) {                                   
     thread_begin(_thread_)                                                                  \
     prelude                                                                                 \
     for (;;) {                                                                              \
-        thread_wait(INFINITE)                                                               \
+        thread_wait_or_break(forever)                                                       \
         code                                                                                \
     }                                                                                       \
     coda                                                                                    \
@@ -127,6 +129,8 @@ static uint32_t WINAPI proc(void* _thread_) {                                   
 } 
 
 typedef struct {
+    bool (*is_valid)(handle_t h);
+    handle_t (*dup)(handle_t s, handle_t process_from, handle_t process_to);
     void (*close)(handle_t h);
 } handles_if;
 

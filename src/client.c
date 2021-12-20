@@ -23,7 +23,7 @@ static void roundtrip() {
     }
     time = seconds_since_boot() - time;
     traceln("client.set() %.3f microseconds\n", time * 1000000.0 / N);
-    traceln("client.get(\"foo\")=\"%s\"\n", client.get("foo"));
+    traceln("client.get(\"foo\")=\"%s\"\n", client.get("Hello World"));
 }
 
 static void streaming() {
@@ -77,13 +77,13 @@ static void streaming() {
 int client_test(int argc, const char* argv[]) {
     soft_realtime_thread();
     roundtrip();
-    fatal_if_false(notification = CreateEvent(null, false, false, null));
+    notification = events.create();
     client.notify = notify;
     streaming();
     client.notify = null; // no more calls to client notify past this point
     handle_t n = notification;
     notification = null;
-    handles.close(n);
+    events.dispose(n);
     return 0;
 }
 

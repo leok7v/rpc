@@ -26,6 +26,7 @@ static struct {
     int32_t deaf_count; // number of notifications nobody listened to
     CRITICAL_SECTION cs;
     volatile bool locked;
+    volatile bool shutdown;
     bool endpoint_in_use;
 } s;
 
@@ -70,13 +71,14 @@ static void remove_client_at(int ix) {
     assert(0 < s.client_count && s.client_count <= countof(s.clients));
     assert(0 <= ix && ix < s.client_count);
     if (ix >= 0) {
+        handles.close(s.clients[ix].notification);
         s.shared_memory->running -= s.clients[ix].running;
         traceln("removing client[%d] pid=%d running=%d", ix, s.clients[ix].client_pid, s.clients[ix].running);
         s.client_count--;
         const int n = s.client_count; // last
         s.clients[ix] = s.clients[n];
         s.clients[n].client_pid = 0;
-        s.clients[n].notification = NULL;
+        s.clients[n].notification = null;
         s.clients[n].running = 0;
     }
     assert(0 <= s.client_count && s.client_count <= countof(s.clients));
@@ -124,32 +126,35 @@ static void RPC_ENTRY client_disconnected(struct _RPC_ASYNC_STATE *async,
     }
 }
 
+static handle_t process_open(uint32_t pid) {
+    handle_t process = null;
+    fatal_if_null(process = OpenProcess(PROCESS_DUP_HANDLE, false, pid));
+    return process;
+}
+
 int s_rpc_connect(handle_t context, rpc_info_t* info) {
     RPC_ASYNC_NOTIFICATION_INFO notification_info = {0};
     notification_info.NotificationRoutine = client_disconnected;
     fatal_if_not_zero(RpcServerSubscribeForNotification(context, RpcNotificationClientDisconnect, RpcNotificationTypeCallback, &notification_info));
     info->server_pid = GetCurrentProcessId();
-    handle_t client_process = null;
-    fatal_if_null(client_process = OpenProcess(PROCESS_DUP_HANDLE, false, (uint32_t)info->client_pid),
-                  "client_pid=%d. Server must be run as Admin or System "
-                  "for opening client process to succeed", (int)info->client_pid);
-    handle_t server_process = null;
-    fatal_if_null(server_process = OpenProcess(PROCESS_DUP_HANDLE, false, (uint32_t)info->server_pid));
+    // server process should have the same of elevated privileges 
+    // relative to client process for process open to succeed 
+    handle_t client_process = process_open((uint32_t)info->client_pid);
+    handle_t server_process = process_open((uint32_t)info->server_pid);
     handle_t notification = null;
-    fatal_if_false(DuplicateHandle(client_process, (handle_t)info->notification,
-        server_process, &notification, 0, false, DUPLICATE_SAME_ACCESS));
+    fatal_if_null(notification = handles.dup((handle_t)info->notification, client_process, server_process));
     handle_t client_mapping = null;
-    fatal_if_false(DuplicateHandle(server_process, s.mapping, client_process,
-            &client_mapping, 0, false, DUPLICATE_SAME_ACCESS));
-    assert(s.mapping != null);
+    fatal_if_null(client_mapping = handles.dup(s.mapping, server_process, client_process));
     info->mapping = (rpc_uint64_t)client_mapping;
     info->memory_size = shared_memory_size;
     handles.close(server_process);
     handles.close(client_process);
     lock();
-    add_client(context, (uint32_t)info->client_pid, (handle_t)notification);
+    int r = add_client(context, (uint32_t)info->client_pid, notification) ?
+        0 : ERROR_BLOCK_TOO_MANY_REFERENCES;
+    if (r != 0) { handles.close(notification); }
     unlock();
-   return 0;
+    return r;
 }
 
 static void notify() {
@@ -208,7 +213,7 @@ int s_rpc_stop(handle_t context) {
 
 int s_rpc_set(handle_t context, unsigned char* name, unsigned char* value) {
     lock();
-//  traceln("rpc_set(context=%p, name=\"%s\", value=\"%s\")\n", context, name, value);
+//  traceln("s_rpc_set(context=%p, name=\"%s\", value=\"%s\")\n", context, name, value);
     unlock();
     return 0;
 }
@@ -219,6 +224,7 @@ int s_rpc_get(handle_t context, unsigned char* name, int* bytes, unsigned char**
     *bytes = (int)strlen(r) + 1;
     *value = (char*)midl_user_allocate(*bytes);
     if (*value != null) { memcpy(*value, r, *bytes); }
+//  traceln("s_rpc_get(context=%p, name=\"%s\", value=\"%s\")\n", context, name, *value);
     unlock();
     return 0;
 }
@@ -231,9 +237,10 @@ int s_rpc_disconnect(handle_t context, rpc_info_t* info) {
 }
 
 void s_rpc_shutdown(handle_t context) {
+    s.shutdown = true;
     server.shutdown();
     fatal_if_not_zero(RpcMgmtStopServerListening(null));
-    fatal_if_not_zero(RpcServerUnregisterIf(null, null, false));
+    fatal_if_not_zero(RpcServerUnregisterIf(s_rpc_i_v1_0_s_ifspec, null, false));
 }
 
 static int use_protocol_sequence_endpoint() {
@@ -252,9 +259,19 @@ static int server_listen() {
     create_shared_memory();
     server.notify = notify;
     threads.create(&s.cleaner, cleaner, &s);
-    fatal_if_not_zero(RpcServerRegisterIf2(s_rpc_i_v1_0_s_ifspec, null, null, RPC_IF_ALLOW_LOCAL_ONLY,
-                RPC_C_LISTEN_MAX_CALLS_DEFAULT, -1, null));
-    fatal_if_not_zero(RpcServerListen(1, RPC_C_LISTEN_MAX_CALLS_DEFAULT, false));
+    fatal_if_not_zero(RpcServerRegisterIf2(s_rpc_i_v1_0_s_ifspec, null, null, 
+                RPC_IF_ALLOW_LOCAL_ONLY | RPC_IF_AUTOLISTEN,
+                1 /* RPC_C_LISTEN_MAX_CALLS_DEFAULT */, 1024, null)); 
+    // 1 call of 1KB incoming call maximum
+//  https://docs.microsoft.com/en-us/windows/win32/rpc/interface-registration-flags
+//  RPC_IF_AUTOLISTEN
+//      This is an auto - listen interface.The run time begins listening for calls 
+//      as soon as the first autolisten interface is registered, and stops listening 
+//      when the last autolisten interface is unregistered.
+    while (!s.shutdown) {
+        fatal_if_not_zero(RpcServerListen(1, 1, true));
+        fatal_if_not_zero(RpcMgmtWaitServerListen());
+    }
     threads.join(&s.cleaner);
     DeleteCriticalSection(&s.cs);
     return 0;
@@ -284,16 +301,20 @@ static struct {
 static bool connect_to_server() {
     __try {
         int r = c_rpc_connect(c.context, &c.info);
-        assert(c.info.server_pid != 0);
-        assert(c.info.notification != 0);
-        assert(c.info.mapping != 0);
-        c.shared_memory = r != 0 ? null :
-            MapViewOfFile((handle_t)c.info.mapping, FILE_MAP_READ, 0, 0, (size_t)c.info.memory_size);
-        assert(c.shared_memory != null);
+        if (r == 0) {
+            assert(c.info.server_pid != 0);
+            assert(c.info.notification != 0);
+            assert(c.info.mapping != 0);
+            fatal_if_null(c.shared_memory = r != 0 ? null :
+                MapViewOfFile((handle_t)c.info.mapping, FILE_MAP_READ, 0, 0, (size_t)c.info.memory_size));
+            // handle is no longer needed after mapping succeeded
+            handles.close((handle_t)c.info.mapping);
+            c.info.mapping = 0; 
+        }
         return r == 0;
     } __except (1) {
         uint32_t r = RpcExceptionCode();
-//      traceln("c_rpc_connect() failed %s", error_to_string(r));
+        traceln("c_rpc_connect() failed %s", error_to_string(r));
         return false;
     }
 }
@@ -383,12 +404,16 @@ static int client_connect() {
     fatal_if_not_zero(RpcBindingFromStringBinding("ncalrpc:[demo]", &c_rpc_i_v1_0_c_ifspec));
     c.context = c_rpc_i_v1_0_c_ifspec;
     c.connected = connect_to_server();
-    while (!c.connected) {
+    int retry = 4;
+    while (!c.connected && retry > 0) {
         sleep(0.001); // yield to let server start
         c.connected = connect_to_server();
+        retry--;
     }
     assert(c.connected);
-    threads.create_with_event(&c.notifier, notifier_thread_proc, &c, (handle_t)c.info.notification);
+    if (c.connected) {
+        threads.create_with_event(&c.notifier, notifier_thread_proc, &c, (handle_t)c.info.notification);
+    }
     return c.connected ? 0 : ERROR_NOT_CONNECTED;
 }
 
@@ -398,8 +423,6 @@ static int client_disconnect() {
     }
     threads.join(&c.notifier);
     fatal_if_false(UnmapViewOfFile(c.shared_memory));
-    // c.info.notification event is disposed by join(c.notifier)
-    handles.close((handle_t)c.info.mapping);
     // stop_local_server() still needs rpc binding context to call shutdown
     if (c.local) { stop_local_server(); }
     fatal_if_not_zero(RpcBindingFree(&c.context));

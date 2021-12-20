@@ -14,7 +14,7 @@ static uint32_t WINAPI test_thread_proc(void* p) {
     double start_time = seconds_since_boot();
     int k = 0;
     for (;;) {
-        thread_wait(1000);
+        thread_wait_or_break(1000);
         // check if there are clients that requested streams to be running:
         if (sm->running > 0) {
             for (int i = 0; i < countof(sm->streams); i++) {
@@ -55,7 +55,7 @@ static int start(shared_memory_t* m) {
         threads.create(&test, test_thread_proc, null);
     }
     threads.notify(&test);
-    traceln("start");
+    traceln("-- started");
     return 0;
 }
 
@@ -63,7 +63,7 @@ static int stop() {
     // called when shared_memory.running has been changed to zero
     for (int i = 0; i < countof(sm->streams); i++) { sm->streams[i].position = -1; }
     threads.notify(&test); 
-    traceln("stop");
+    traceln("-- stopped");
     return 0;
 }
 
@@ -75,8 +75,6 @@ static const char* get(const char* name) {
     return 0;
 }
 
-static void notify() { assert(false, "must be overriden"); }
-
 static void server_shutdown() {
     if (test.thread != null) { threads.join(&test); }
 }
@@ -84,7 +82,7 @@ static void server_shutdown() {
 int server_main(int argc, const char* argv[]);
 
 server_if server = {
-    notify,
+    null, // notify
     start,
     stop,
     set,
