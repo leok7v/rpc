@@ -28,8 +28,8 @@ int main(int argc, const char* argv[]) {
             }
         }
     } else {
+        traceln("rpc server|client [--shutdown] [-v] [--verbose]");
         r = 1;
-        traceln("rpc server|client [--shutdown]");
     }
     if (r != 0) {
         traceln("error: %s", error_to_string(r));

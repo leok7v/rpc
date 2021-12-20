@@ -288,7 +288,7 @@ static bool connect_to_server() {
         assert(c.info.notification != 0);
         assert(c.info.mapping != 0);
         c.shared_memory = r != 0 ? null :
-            MapViewOfFile((handle_t)c.info.mapping, FILE_MAP_READ, 0, 0, c.info.memory_size);
+            MapViewOfFile((handle_t)c.info.mapping, FILE_MAP_READ, 0, 0, (size_t)c.info.memory_size);
         assert(c.shared_memory != null);
         return r == 0;
     } __except (1) {

@@ -58,7 +58,7 @@ void assertion_failed(const char* file, int line, const char* function,
 }
 
 static void* allocate(uint64_t bytes) {
-    void* p = malloc(bytes);
+    void* p = malloc((size_t)bytes);
 //  traceln("malloc(%p[%d])\n", p, (int)bytes);
     return p;
 }
@@ -204,7 +204,7 @@ events_if events = {
     handle_close
 };
 
-static void threads_create_with_event(thread_t* thread, uint32_t(*proc)(void* thread), void* that, handle_t e) {
+static void threads_create_with_event(thread_t* thread, uint32_t (WINAPI *proc)(void* thread), void* that, handle_t e) {
     assert(thread->events[0] == null);
     assert(thread->events[1] == null);
     assert(thread->thread == null);
@@ -213,9 +213,10 @@ static void threads_create_with_event(thread_t* thread, uint32_t(*proc)(void* th
     fatal_if_null(thread->events[0] = CreateEvent(null, false, false, null));
     fatal_if_null(thread->events[1] = e);
     fatal_if_null(thread->thread = CreateThread(null, 0, proc, thread, 0, null));
+
 }
 
-static void threads_create(thread_t* thread, uint32_t(*proc)(void* thread), void* that) {
+static void threads_create(thread_t* thread, uint32_t (WINAPI *proc)(void* thread), void* that) {
     threads_create_with_event(thread, proc, that, CreateEvent(null, false, false, null));
 }
 

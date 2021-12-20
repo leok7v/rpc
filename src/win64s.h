@@ -11,8 +11,10 @@
 #include <windows.h>
 
 // w64s stands for "Windows 64 bit Simplistic" because
-// 1. Windows.h and "Win32" API sounds SHOUTING in 2021
-// 2. Checking error codes at call sites for invalid parameters
+// 1. Windows.h and "Win32" ALLCAPS APIs is a bit rude in 2021
+//    https://en.wikipedia.org/wiki/All_caps
+//    "repeated use of all caps can be considered `shouting` or irritating.
+// 2. Checking error codes at all call sites for invalid parameters
 //    and handling that as fatal errors better be done once.
 
 #ifdef __cplusplus
@@ -145,8 +147,9 @@ typedef struct {
 extern events_if events;
 
 typedef struct {
-    void (*create_with_event)(thread_t* thread, uint32_t(*proc)(void* thread), void* that, handle_t e);
-    void (*create)(thread_t* thread, uint32_t(*proc)(void* thread), void* that);
+    void (*create_with_event)(thread_t* thread, uint32_t (WINAPI *proc)(void* thread), 
+                              void* that, handle_t e);
+    void (*create)(thread_t* thread, uint32_t (WINAPI *proc)(void* thread), void* that);
     void (*notify)(thread_t* thread);
     void (*join)(thread_t* thread); // closes ALL handles
 } threads_if;
