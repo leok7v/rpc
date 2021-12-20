@@ -1,0 +1,26 @@
+typedef unsigned long long rpc_uint64_t;
+typedef int rpc_int32_t;
+
+typedef struct rpc_info_s {
+    rpc_uint64_t client_pid;   // from client before connect()
+    rpc_uint64_t server_pid;   // from server valid after connect()
+    rpc_uint64_t notification; // from client event valid before connect()
+    rpc_uint64_t mapping;      // from server memory mapping valid after connect()
+    rpc_uint64_t memory_size;  // from server valid after connect()
+} rpc_info_t;
+
+[
+    uuid(5b70aed7-c716-4abd-8dab-f57c87de314e),
+    version(1.0),
+    endpoint("ncalrpc:[demo]")
+]
+
+interface rpc_i {
+    int rpc_connect([in, out]rpc_info_t* info);
+    int rpc_start();
+    int rpc_stop();
+    int rpc_set([in, string] char* name, [in, string] char* value);
+    int rpc_get([in, string] char* name, [out] int* bytes, [out, size_is(, *bytes)] char** value);
+    int rpc_disconnect([in]rpc_info_t* info);
+    void rpc_shutdown(void); // instead of disconnect
+}

@@ -1,0 +1,32 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<Project ToolsVersion="4.0" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+  <ItemGroup>
+    <ClCompile Include="..\src\client.c" />
+    <ClCompile Include="..\src\server.c" />
+    <ClCompile Include="..\src\main.c" />
+    <ClCompile Include="..\src\rpc.c" />
+    <ClCompile Include="..\src\iface_c.c">
+      <Filter>gen</Filter>
+    </ClCompile>
+    <ClCompile Include="..\src\iface_s.c">
+      <Filter>gen</Filter>
+    </ClCompile>
+    <ClCompile Include="..\src\win64s.c" />
+  </ItemGroup>
+  <ItemGroup>
+    <ClInclude Include="..\src\server.h" />
+    <ClInclude Include="..\src\client.h" />
+    <ClInclude Include="..\src\iface_h.h">
+      <Filter>gen</Filter>
+    </ClInclude>
+    <ClInclude Include="..\src\win64s.h" />
+  </ItemGroup>
+  <ItemGroup>
+    <Midl Include="..\src\iface.idl" />
+  </ItemGroup>
+  <ItemGroup>
+    <Filter Include="gen">
+      <UniqueIdentifier>{2b067658-5ed3-4a38-8d84-ec192b693dab}</UniqueIdentifier>
+    </Filter>
+  </ItemGroup>
+</Project>
